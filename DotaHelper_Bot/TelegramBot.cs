@@ -1,187 +1,167 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Security.Policy;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Timers;
-using System.Xml.Linq;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InputFiles;
 using Telegram.Bot.Types.ReplyMarkups;
+using Message = Telegram.Bot.Types.Message;
 
 namespace DotaHelper_Bot
 {
     public class TelegramBot
     {
-        private ITelegramBotClient bot = new TelegramBotClient("TOKEN"); 
+        // Сервіс з якого ми витягуємо данні
+        private DotabuffServer dotabuff = new DotabuffServer();
+        // Клієнт бота
+        private TelegramBotClient botClient;
 
-        private DotabuffServer server = new DotabuffServer();
+        // Час останнього використання команди
+        private readonly Dictionary<long, DateTime> lastCommandUsage = new Dictionary<long, DateTime>();
+        // Тривалість перезарядки
+        private readonly TimeSpan commandCooldown = TimeSpan.FromSeconds(1); 
 
-        private const string FirstButton = "FirstHero";
-        private const string SecondButton = "SecondHero";
-        private const string ThirdButton = "ThirdHero";
-        private const string FourtButton = "FourthHero";
-        private const string FifthButton = "FifthHero";
+        private const string COMANDS_INFO =
+        "Command List: \n" +
+        "/start - Running the bot \n" +
+        "/find [character name] - Search for character counterpicks \n" +
+        "( Example: /find Axe )\n\n" +
+        "/help - View the commands list";
 
-        private List<Hero> current_Counterpeaks = new List<Hero>(); 
 
-        public void Run()
+        public TelegramBot()
         {
-            try
-            {
-                Console.WriteLine("Bot launched " + bot.GetMeAsync().Result.FirstName);
-
-                // Creating a timer with an hourly countdown
-                var timer = new System.Timers.Timer(3600000);
-                timer.Elapsed += new ElapsedEventHandler(TimerTick);
-                timer.Start();
-
-                // Binding the bot to certain methods and passing options and a token
-                var cts = new CancellationTokenSource();
-                var cancellationToken = cts.Token;
-                var receiverOptions = new ReceiverOptions
-                {
-                    AllowedUpdates = { }, // receive all update types
-                };
-
-                bot.StartReceiving(
-                    HandleUpdateAsync,
-                    HandleErrorAsync,
-                    receiverOptions,
-                    cancellationToken
-                );
-            } 
-            catch ( Exception ex)
-            {
-                Console.WriteLine($"When starting the bot [{ex.Message}]");
-            }
-
+            botClient = new TelegramBotClient("5939745151:AAHcL4_XqY42DO9JVkm57h9WFNZa2uNofsM");
+            StartReceiver();
             Console.ReadLine();
         }
 
-        private void TimerTick(object sender, EventArgs e)
+        public async void StartReceiver()
         {
-            // Update information from the site
-            server.UpdateInfo();
+            var token = new CancellationTokenSource();
+            var cancelToken = token.Token;
+            var ReOpt = new ReceiverOptions { AllowedUpdates = { } };
+            await botClient.ReceiveAsync(OnUpdate, ErrorMessage, ReOpt, cancelToken);
         }
 
-        async Task HandleButton(CallbackQuery query)
+        /// <summary>
+        /// Обробляє помилки, які виникають під час взаємодії з API Telegram.
+        /// </summary>
+        /// <param name="botClient">Клієнт бота Telegram</param>
+        /// <param name="exception">Об'єкт винятку, який потрібно обробити</param>
+        /// <param name="cancellationToken">Токен для можливості відміни операції</param>
+        public async Task ErrorMessage(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
         {
-            if (current_Counterpeaks.Count > 0)
+            if (exception is ApiRequestException requestException)
             {
-                string hero = string.Empty;
-                switch (query.Data) // Which button is pressed
-                {
-                    case FirstButton:
-                        hero = current_Counterpeaks[0].Name;
-                        break;
-                    case SecondButton:
-                        hero = current_Counterpeaks[1].Name;
-                        break;
-                    case ThirdButton:
-                        hero = current_Counterpeaks[2].Name;
-                        break;
-                    case FourtButton:
-                        hero = current_Counterpeaks[3].Name;
-                        break;
-                    case FifthButton:
-                        hero = current_Counterpeaks[4].Name;
-                        break;
-                    default:
-                        break;
-                }
-
-                query.Message.Text = $"/find " + hero.Trim();
-                await HandleMessage(query.Message);
-            }
-
-            // Close the query to end the client-side loading animation
-            try
-            {
-                await bot.AnswerCallbackQueryAsync(query.Id);
-            } 
-            catch (Exception ex)
-            {
-                Console.WriteLine("Ошибка при закрытии запроса\n" + ex.Message);
+                await botClient.SendTextMessageAsync("", requestException.Message.ToString());
             }
         }
 
-        async Task HandleMessage(Message msg)
+        /// <summary>
+        /// Обробка вхідних повідомлень та обробка подій від користувачів, включаючи текстові повідомлення
+        /// та відповіді на натискання кнопок.
+        /// </summary>
+        /// <param name="botClient">Клієнт бота Telegram</param>
+        /// <param name="update">Оновлення від Telegram, яке містить інформацію про подію</param>
+        /// <param name="cancellationToken">Токен для відміни операції</param>
+        public async Task OnUpdate(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
         {
-            var user = msg.From;
-            var text = msg.Text ?? string.Empty;
+            if (update.Message != null)
+            {
+                await HandleMessage(update.Message);
+            }
+            else if (update.CallbackQuery != null)
+            {
+                await HandleCallbackQuery(update.CallbackQuery);
+            }
+        }
+
+        public async Task HandleMessage(Message message)
+        {
+            var user = message.From;
+            var text = message.Text ?? string.Empty;
 
             if (user is null)
                 return;
 
-            // Outputting a message to the console
-            Console.WriteLine($"{msg.Chat.FirstName} {msg.Chat.LastName} wrote {msg.Text} |{msg.Date.AddHours(2)}| "); // Ukrainian time zone orientation (UTC +02:00)
-            const string CommandsINFO = "Command List: " +
-                   "\n/start  -  Running the bot" +
-                   "\n/find  [character name]  -  Search for character counterpicks " +
-                   "\n/commands  -  View the commands list";
-
-            // Command processing
             if (text.Equals("/start"))
             {
-                await bot.SendTextMessageAsync(msg.Chat, "👋DotaHelper welcomes you👋\n" + CommandsINFO);
+                await botClient.SendTextMessageAsync(message.Chat, "👋DotaHelper welcomes you👋\n" + COMANDS_INFO);
+            }
+            else if (text.Equals("/help"))
+            {
+                await botClient.SendTextMessageAsync(message.Chat, COMANDS_INFO);
             }
             else if (text.Contains("/find "))
             {
-                msg.Text = text.Replace("/find ", "");
-                await SendHero(msg);
-                await SendHeroDrafts(msg);
-            }
-            else if (text.Equals("/commands"))
-            {
-                await bot.SendTextMessageAsync(msg.Chat, CommandsINFO); 
+                if (lastCommandUsage.ContainsKey(user.Id) && (DateTime.Now - lastCommandUsage[user.Id]) < commandCooldown)
+                {
+                    // Користувач вже використовував команду /find і не минула перезарядка
+                    await botClient.SendTextMessageAsync(message.Chat, "Ви не можете використовувати цю команду зараз.");
+                }
+                else
+                {
+                    lastCommandUsage[user.Id] = DateTime.Now;
+                    string name = text.Replace("/find ", "");
+                    long id = message.Chat.Id;
+
+                    await SendHeroWithButtons(name, id);
+                }
             }
             else
             {
-                await bot.SendTextMessageAsync(msg.Chat, "This command is unknown");
+                await botClient.SendTextMessageAsync(message.Chat, "This command is unknown");
             }
         }
 
-        private async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+        private async Task SendHeroWithButtons(string name, long chatId)
         {
-            switch (update.Type)
+            var hero = dotabuff.GetHero(name);
+
+            if (hero.Name != null && name.Length > 0) // Character found
             {
-                // A message was received
-                case UpdateType.Message:
-                    await HandleMessage(update.Message);
-                    break;
-
-                // A button was pressed
-                case UpdateType.CallbackQuery:
-                    await HandleButton(update.CallbackQuery);
-                    break;
-            }
-        }
-
-        private async Task SendHero(Message message)
-        {
-            var hero = server.GetHero(message.Text);
-
-            if (hero.Name != null && message.Text.Length > 0) // Character found
-            {
-                string screen = hero.Path;
                 try
                 {
-                    var fileStream = new FileStream(screen, FileMode.Open, FileAccess.Read, FileShare.Read); // Виведення персонажа
-                    var result = server.GetHeroCounterpeaks(message.Text);
+                    using (var stream = System.IO.File.OpenRead(hero.Path))
+                    {
+                        var fileStream = new InputOnlineFile(stream);
 
-                    // Character output
-                    await bot.SendPhotoAsync(
-                        chatId: message.Chat.Id,
-                        photo: new InputOnlineFile(fileStream),
-                        caption: Align(hero.Name.ToUpper())
-                        );
+                        // Опис тексту з використанням HTML-підтримки
+                        var caption = $"<b>{hero.Name.ToUpper()}</b>\n\nClick a button to see the counterpicks:";
+
+                        var buttons = new List<List<InlineKeyboardButton>>();
+
+                        List<Hero> current_Counterpeaks = dotabuff.GetHeroCounterpeaks(name);
+
+                        if (current_Counterpeaks != null && current_Counterpeaks.Count > 0)
+                        {
+                            foreach (var counterpeak in current_Counterpeaks)
+                            {
+                                buttons.Add(new List<InlineKeyboardButton>
+                                {
+                                    new InlineKeyboardButton($"☛{counterpeak.Name}☚")
+                                    {
+                                        CallbackData = counterpeak.Name
+                                    }
+                                });
+                            }
+
+                            var keyboard = new InlineKeyboardMarkup(buttons);
+
+                            await botClient.SendPhotoAsync(
+                                chatId: chatId,
+                                photo: fileStream,
+                                caption: caption,
+                                parseMode: ParseMode.Html,
+                                replyMarkup: keyboard
+                            );
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -190,67 +170,16 @@ namespace DotaHelper_Bot
             }
             else
             {
-                await bot.SendTextMessageAsync(message.Chat, "The character is not found! \nCheck the indicated name");
+                await botClient.SendTextMessageAsync(chatId, "The character is not found! \nCheck the indicated name");
             }
         }
 
-        private async Task SendHeroDrafts(Message message)
+        private async Task HandleCallbackQuery(CallbackQuery callbackQuery)
         {
-            current_Counterpeaks?.Clear();
-            current_Counterpeaks = server.GetHeroCounterpeaks(message.Text);
+            string Name = callbackQuery.Data;
+            long ChatId = callbackQuery.Message.Chat.Id;
 
-            if (current_Counterpeaks != null && message.Text.Length > 0) // Character found
-            {
-                var keyboard = new InlineKeyboardMarkup(new[]
-                {
-                    new[]
-                    {
-                        new InlineKeyboardButton($"☛{current_Counterpeaks[0].Name}☚") { CallbackData = FirstButton},
-                    },
-                    new[]
-                    {
-                        new InlineKeyboardButton($"☛{current_Counterpeaks[1].Name}☚"){ CallbackData = SecondButton},
-                    },
-                    new[]
-                    {
-                        new InlineKeyboardButton($"☛{current_Counterpeaks[2].Name}☚") { CallbackData = ThirdButton }
-                    },
-                    new[]
-                    {
-                        new InlineKeyboardButton($"☛{current_Counterpeaks[3].Name}☚") { CallbackData = FourtButton }
-                    },
-                    new[]
-                    {
-                        new InlineKeyboardButton($"☛{current_Counterpeaks[4].Name}☚") { CallbackData = FifthButton}
-                    }
-                });
-
-                await bot.SendTextMessageAsync(message.Chat.Id, "ㅤㅤㅤ▞▞▞►Контрпіки◄▞▞▞", replyMarkup: keyboard);
-            }
-        }
-
-        private string Align(string text) 
-        {
-            int msg_width = 18;
-            string result = "";
-
-            // Determining the number of indents
-            for (int i = 0; i < (msg_width - text.Length/2)/2; i++)
-            {
-                result += "ㅤ";
-            }
-
-            // Adding indentation for alignment
-            string str = result.Substring(0, result.Length - 4);
-            result = text.Insert(0, result) + str;
-
-            return result;
-        }
-
-        private async Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
-        {
-            // Error message output
-           Console.WriteLine(exception.Message);
+            await SendHeroWithButtons(Name, ChatId);
         }
     }
 }

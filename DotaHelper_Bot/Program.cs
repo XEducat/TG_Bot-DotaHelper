@@ -10,7 +10,6 @@ namespace DotaHelper_Bot
         static void Main(string[] args)
         {
             TelegramBot bot = new TelegramBot();
-            bot.Run();
         }
     }
 }

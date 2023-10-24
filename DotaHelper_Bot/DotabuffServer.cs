@@ -12,6 +12,11 @@ namespace DotaHelper_Bot
 
         private HeroesDB database = new HeroesDB();
 
+        public DotabuffServer()
+        {
+            UpdateInfo();
+        }
+
         public List<Hero> GetHeroCounterpeaks(string text)
         {
             // Searching for a character in the database
