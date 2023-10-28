@@ -144,7 +144,8 @@ namespace DotaHelper_Bot
                             {
                                 buttons.Add(new List<InlineKeyboardButton>
                                 {
-                                    new InlineKeyboardButton($"☛{counterpeak.Name}☚")
+                                    //new InlineKeyboardButton($"☛{counterpeak.Name}☚")
+                                    new InlineKeyboardButton(counterpeak.Name)
                                     {
                                         CallbackData = counterpeak.Name
                                     }
@@ -183,3 +184,59 @@ namespace DotaHelper_Bot
         }
     }
 }
+
+
+//private async Task SendHero(string name, long chatId)
+//{
+//    var hero = dotabuff.GetHero(name);
+
+//    if (hero.Name != null && name.Length > 0) // Character found
+//    {
+//        try
+//        {
+//            using (var stream = System.IO.File.OpenRead(hero.Path))
+//            {
+//                var fileStream = new InputOnlineFile(stream);
+//                // Character output
+//                await botClient.SendPhotoAsync(
+//                    chatId: chatId,
+//                    photo: fileStream,
+//                    caption: hero.Name.ToUpper()
+//                );
+//            }
+//        }
+//        catch (Exception ex)
+//        {
+//            Console.WriteLine(ex.Message);
+//        }
+//    }
+//    else
+//    {
+//        await botClient.SendTextMessageAsync(chatId, "The character is not found! \nCheck the indicated name");
+//    }
+//}
+
+//private async Task SendHeroDrafts(string name, long chatId)
+//{
+//    List<Hero> current_Counterpeaks = dotabuff.GetHeroCounterpeaks(name);
+
+//    if (current_Counterpeaks != null && current_Counterpeaks.Count > 0)
+//    {
+//        var buttons = new List<List<InlineKeyboardButton>>();
+
+//        foreach (var counterpeak in current_Counterpeaks)
+//        {
+//            buttons.Add(new List<InlineKeyboardButton>
+//                    {
+//                        new InlineKeyboardButton($"☛{counterpeak.Name}☚")
+//                        {
+//                            CallbackData = counterpeak.Name
+//                        }
+//                    });
+//        }
+
+//        var keyboard = new InlineKeyboardMarkup(buttons);
+
+//        await botClient.SendTextMessageAsync(chatId, "ㅤㅤㅤ▞▞▞►Контрпіки◄▞▞▞", replyMarkup: keyboard);
+//    }
+//}
