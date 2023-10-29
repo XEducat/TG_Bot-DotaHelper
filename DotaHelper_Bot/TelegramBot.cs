@@ -16,7 +16,7 @@ namespace DotaHelper_Bot
     public class TelegramBot
     {
         // Сервіс з якого ми витягуємо данні
-        private DotabuffServer dotabuff = new DotabuffServer();
+        private DotabuffServer dotabuff;
         // Клієнт бота
         private TelegramBotClient botClient;
 
@@ -35,9 +35,17 @@ namespace DotaHelper_Bot
 
         public TelegramBot()
         {
-            botClient = new TelegramBotClient("5939745151:AAHcL4_XqY42DO9JVkm57h9WFNZa2uNofsM");
-            StartReceiver();
+            SetupBot();
             Console.ReadLine();
+        }
+
+        private void SetupBot()
+        {
+            Console.WriteLine(" -- Bot start setuping -- \n");
+            botClient = new TelegramBotClient("5939745151:AAHcL4_XqY42DO9JVkm57h9WFNZa2uNofsM");
+            dotabuff = new DotabuffServer();
+            StartReceiver();
+            Console.WriteLine("\n -- Bot ready to use -- ");
         }
 
         public async void StartReceiver()
@@ -91,7 +99,7 @@ namespace DotaHelper_Bot
 
             if (text.Equals("/start"))
             {
-                await botClient.SendTextMessageAsync(message.Chat, "👋DotaHelper welcomes you👋\n" + COMANDS_INFO);
+                await botClient.SendTextMessageAsync(message.Chat, $"👋DotaHelper welcomes you {message.Chat.FirstName}👋\n" + COMANDS_INFO);
             }
             else if (text.Equals("/help"))
             {
@@ -129,37 +137,19 @@ namespace DotaHelper_Bot
                 {
                     using (var stream = System.IO.File.OpenRead(hero.Path))
                     {
-                        var fileStream = new InputOnlineFile(stream);
-
                         // Опис тексту з використанням HTML-підтримки
                         var caption = $"<b>{hero.Name.ToUpper()}</b>\n\nClick a button to see the counterpicks:";
 
-                        var buttons = new List<List<InlineKeyboardButton>>();
+                        List<Hero> counterpeaks = dotabuff.GetHeroCounterpeaks(name);
 
-                        List<Hero> current_Counterpeaks = dotabuff.GetHeroCounterpeaks(name);
-
-                        if (current_Counterpeaks != null && current_Counterpeaks.Count > 0)
+                        if (counterpeaks != null && counterpeaks.Count > 0)
                         {
-                            foreach (var counterpeak in current_Counterpeaks)
-                            {
-                                buttons.Add(new List<InlineKeyboardButton>
-                                {
-                                    //new InlineKeyboardButton($"☛{counterpeak.Name}☚")
-                                    new InlineKeyboardButton(counterpeak.Name)
-                                    {
-                                        CallbackData = counterpeak.Name
-                                    }
-                                });
-                            }
-
-                            var keyboard = new InlineKeyboardMarkup(buttons);
-
                             await botClient.SendPhotoAsync(
                                 chatId: chatId,
-                                photo: fileStream,
+                                photo: new InputOnlineFile(stream),
                                 caption: caption,
                                 parseMode: ParseMode.Html,
-                                replyMarkup: keyboard
+                                replyMarkup: CreateKeybord(counterpeaks)
                             );
                         }
                     }
@@ -173,6 +163,24 @@ namespace DotaHelper_Bot
             {
                 await botClient.SendTextMessageAsync(chatId, "The character is not found! \nCheck the indicated name");
             }
+        }
+
+        private InlineKeyboardMarkup CreateKeybord(List<Hero> counterpeaks)
+        {
+            var buttons = new List<List<InlineKeyboardButton>>();
+
+            foreach (var counterpeak in counterpeaks)
+            {
+                buttons.Add(new List<InlineKeyboardButton>
+                {
+                    new InlineKeyboardButton(counterpeak.Name)
+                    {
+                        CallbackData = counterpeak.Name
+                    }
+                });
+            }
+
+            return new InlineKeyboardMarkup(buttons);
         }
 
         private async Task HandleCallbackQuery(CallbackQuery callbackQuery)
